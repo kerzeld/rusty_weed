@@ -26,6 +26,14 @@ impl Master {
         }
     }
 
+    /// Creates a master from a string
+    /// 
+    /// # Example
+    /// ```
+    /// use rusty_weed::master::Master;
+    /// 
+    /// let master = Master::from_str("1.1.1.1:9333").unwrap();
+    /// ```
     pub fn from_str(s: &str) -> Result<Master, Box<dyn Error>> {
         let mut parts = s.split(":");
 
@@ -48,7 +56,7 @@ impl Master {
         })
     }
 
-
+    /// Assigns a file id
     pub async fn assign_key(
         &self,
         options: &Option<AssignKeyOptions>,
@@ -62,6 +70,7 @@ impl Master {
         }
     }
 
+    /// Lookup the locations of a volume
     pub async fn lookup_volume(
         &self,
         volume_id: &FID,
@@ -85,6 +94,7 @@ impl Master {
     }
 }
 
+/// Options for the [assign_key](Master::assign_key) function
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AssignKeyOptions {
@@ -105,6 +115,7 @@ pub struct AssignKeyOptions {
     pub disk: Option<String>,
 }
 
+/// Return type of the [assign_key](Master::assign_key) function
 #[derive(Deserialize, Debug)]
 pub struct AssignKeyResponse {
     pub count: u64,
@@ -113,6 +124,7 @@ pub struct AssignKeyResponse {
     pub location: Location,
 }
 
+/// Options for the [lookup_volume](Master::lookup_volume) function
 #[derive(Serialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct LookupVolumeOptions {
@@ -121,6 +133,7 @@ pub struct LookupVolumeOptions {
     pub read: Option<bool>,
 }
 
+/// Return type of the [lookup_volume](Master::lookup_volume) function
 #[derive(Deserialize, Debug)]
 pub struct LookupVolumeResponse {
     pub locations: Vec<Location>,

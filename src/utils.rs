@@ -23,6 +23,8 @@ impl ReplicationValues {
     }
 }
 
+/// Replication factor for volumes
+/// for example 100 means 1 replica in another data center
 #[derive(Debug)]
 pub struct ReplicationType {
     data_center: Option<ReplicationValues>,
@@ -62,6 +64,7 @@ impl Serialize for ReplicationType {
     }
 }
 
+/// Units for TTL for requesting a file key
 #[derive(Debug)]
 pub enum TTLUnits {
     Minute,
@@ -85,10 +88,11 @@ impl TTLUnits {
     }
 }
 
+/// Time to live option struct for assigning a file id
 #[derive(Debug)]
 pub struct TTL {
-    unit: TTLUnits,
-    value: u32,
+    pub unit: TTLUnits,
+    pub value: u32,
 }
 
 impl TTL {
@@ -114,6 +118,7 @@ enum FIDErrors {
     MissingFileString,
 }
 
+/// Representation of a SeaweedFS file id (3,32834855_1 for example)
 #[derive(Debug)]
 pub struct FID {
     pub volume_id: u32,
@@ -168,7 +173,6 @@ impl FID {
     }
 }
 
-
 impl<'de> Deserialize<'de> for FID {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -199,9 +203,6 @@ impl<'de> Deserialize<'de> for FID {
     }
 }
 
-
-
-
 impl Serialize for FID {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -211,6 +212,7 @@ impl Serialize for FID {
     }
 }
 
+/// Location strings for volume lookup
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Location {

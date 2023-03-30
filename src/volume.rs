@@ -30,6 +30,16 @@ impl Volume {
         }
     }
 
+    /// Creates a master from a string
+    ///
+    /// Should be used in combination with [locations](crate::utils::Location) received from [looking up a volume](crate::master::Master::lookup_volume)
+    ///
+    /// # Example
+    /// ```
+    /// use rusty_weed::volume::Volume;
+    ///
+    /// let master = Volume::from_str("1.1.1.1:9333").unwrap();
+    /// ```
     pub fn from_str(s: &str) -> Result<Volume, Box<dyn Error>> {
         let mut parts = s.split(":");
 
@@ -52,6 +62,7 @@ impl Volume {
         })
     }
 
+    /// Gets a file from a volume and returns the full reqwest response
     pub async fn get_file_response(
         &self,
         fid: &FID,
@@ -78,6 +89,7 @@ impl Volume {
         }
     }
 
+    /// Gets a file and returns it in bytes
     pub async fn get_file_bytes(
         &self,
         fid: &FID,
@@ -104,6 +116,7 @@ impl Volume {
         }
     }
 
+    /// Deletes a file
     pub async fn delete_file(
         &self,
         fid: &FID,
@@ -130,6 +143,7 @@ impl Volume {
         }
     }
 
+    /// Uploads a file in bytes
     pub async fn upload_file_bytes(
         &self,
         fid: &FID,
@@ -177,6 +191,7 @@ impl Serialize for GetFileModes {
     }
 }
 
+/// Options for the volume functions [get_file_response](Volume::get_file_response) and [get_file_bytes](Volume::get_file_bytes)
 #[derive(Serialize, Debug, Default)]
 pub struct GetFileOptions {
     #[serde(rename = "readDeleted")]
@@ -203,6 +218,7 @@ where
     }
 }
 
+/// Options for the volume function [upload_file_bytes](Volume::upload_file_bytes)
 #[derive(Serialize, Debug, Default)]
 pub struct UploadFileOptions {
     #[serde(rename = "type")]
@@ -214,6 +230,7 @@ pub struct UploadFileOptions {
     pub cm: Option<bool>,
 }
 
+/// Return type for the volume function [upload_file_bytes](Volume::upload_file_bytes)
 #[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct UploadBytesResponse {

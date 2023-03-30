@@ -2,7 +2,7 @@ use std::error::Error;
 
 use bytes::Bytes;
 use reqwest::Response;
-use serde::{Serialize, Serializer, Deserialize};
+use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
 use crate::utils::FID;
@@ -135,7 +135,7 @@ impl Volume {
         fid: &FID,
         data: &Bytes,
         options: &Option<UploadFileOptions>,
-    ) -> Result<UploadBytes, Box<dyn Error>> {
+    ) -> Result<UploadBytesResponse, Box<dyn Error>> {
         let qs_string = serde_qs::to_string(options)?;
 
         let client = reqwest::Client::builder().build()?;
@@ -149,13 +149,11 @@ impl Volume {
                 qs_string
             ))
             .body(data.clone())
-
             .send()
             .await?;
 
-
         match req.status() {
-            reqwest::StatusCode::CREATED => Ok(req.json::<UploadBytes>().await?),
+            reqwest::StatusCode::CREATED => Ok(req.json::<UploadBytesResponse>().await?),
             _ => Err(Box::new(VolumeErrors::NotCreated(req.text().await?))),
         }
     }
@@ -213,22 +211,24 @@ pub struct UploadFileOptions {
     /// modification timestamp in epoch seconds
     pub ts: Option<u64>,
     /// content is a chunk manifest file
-    pub cm: Option<bool>
+    pub cm: Option<bool>,
 }
 
 #[derive(Deserialize, Debug, Default)]
-pub struct UploadBytes {
-    pub size: usize
+#[serde(rename_all = "camelCase")]
+pub struct UploadBytesResponse {
+    pub size: usize,
+    pub e_tag: String,
 }
 
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
 
-    use crate::master::{Master, AssignKeyOptions};
+    use crate::master::{AssignKeyOptions, Master};
 
     use crate::utils::FID;
-    use crate::volume::{Volume};
+    use crate::volume::Volume;
 
     use super::UploadFileOptions;
 
@@ -281,20 +281,22 @@ mod tests {
             Err(err) => {
                 println!("{}", err);
                 panic!("failed to upload file");
-            },
+            }
         }
 
         let down_resp = volume.get_file_bytes(&fid, &None).await;
 
         match down_resp {
             Ok(x) => {
-                assert_eq!(String::from_utf8(data.clone().into()).unwrap(), String::from_utf8(x.clone().into()).unwrap())
+                assert_eq!(
+                    String::from_utf8(data.clone().into()).unwrap(),
+                    String::from_utf8(x.clone().into()).unwrap()
+                )
             }
             Err(err) => {
                 println!("{}", err);
                 panic!("failed to download file");
-            },
+            }
         }
-
     }
 }

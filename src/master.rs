@@ -52,12 +52,12 @@ impl Master {
     pub async fn assign_key(
         &self,
         options: &Option<AssignKeyOptions>,
-    ) -> Result<AssignKey, Box<dyn Error>> {
+    ) -> Result<AssignKeyResponse, Box<dyn Error>> {
         let qs_string = serde_qs::to_string(options)?;
         let req = reqwest::get(concat_string!(self.to_string(), "/dir/assign?", qs_string)).await?;
 
         match req.status() {
-            reqwest::StatusCode::OK => Ok(req.json::<AssignKey>().await?),
+            reqwest::StatusCode::OK => Ok(req.json::<AssignKeyResponse>().await?),
             _ => Err(Box::new(MasterErrors::InvalidRequest(req.text().await?))),
         }
     }
@@ -66,7 +66,7 @@ impl Master {
         &self,
         volume_id: &FID,
         options: &Option<LookupVolumeOptions>,
-    ) -> Result<LookupVolume, Box<dyn Error>> {
+    ) -> Result<LookupVolumeResponse, Box<dyn Error>> {
         let qs_string = serde_qs::to_string(options)?;
 
         let req = reqwest::get(concat_string!(
@@ -79,7 +79,7 @@ impl Master {
         .await?;
 
         match req.status() {
-            reqwest::StatusCode::OK => Ok(req.json::<LookupVolume>().await?),
+            reqwest::StatusCode::OK => Ok(req.json::<LookupVolumeResponse>().await?),
             _ => Err(Box::new(MasterErrors::InvalidRequest(req.text().await?))),
         }
     }
@@ -106,7 +106,7 @@ pub struct AssignKeyOptions {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct AssignKey {
+pub struct AssignKeyResponse {
     pub count: u64,
     pub fid: FID,
     #[serde(flatten)]
@@ -122,7 +122,7 @@ pub struct LookupVolumeOptions {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct LookupVolume {
+pub struct LookupVolumeResponse {
     pub locations: Vec<Location>,
 }
 
@@ -133,7 +133,7 @@ mod tests {
 
     use crate::utils::FID;
 
-    use super::{AssignKey, AssignKeyOptions, LookupVolumeOptions, Master};
+    use super::{AssignKeyResponse, AssignKeyOptions, LookupVolumeOptions, Master};
 
     #[test]
     fn parse_resp_assign_key() {
@@ -144,7 +144,7 @@ mod tests {
             "url":"1.2.2.2:3233"
         }"#;
 
-        let parsed = serde_json::from_str::<AssignKey>(data);
+        let parsed = serde_json::from_str::<AssignKeyResponse>(data);
         match parsed {
             Ok(f) => assert_eq!("3,01637037d6", f.fid.to_string().as_str()),
             Err(e) => {

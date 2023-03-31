@@ -1,7 +1,5 @@
-use std::error::Error;
-
 use bytes::Bytes;
-use reqwest::Response;
+use reqwest::{multipart::Form, Response};
 use serde::{Deserialize, Serialize, Serializer};
 use thiserror::Error;
 
@@ -13,13 +11,23 @@ pub struct Volume {
 }
 
 #[derive(Error, Debug)]
-enum VolumeErrors {
+pub enum VolumeErrors {
     #[error("Wrong format of string expected 0.0.0.0:3333 for example")]
     WrongFormat,
     #[error("Response StatusCode was not CREATED 201 see body for error: {0}")]
     NotCreated(String),
+    #[error("Response StatusCode was not ACCEPTED 202 see body for error: {0}")]
+    NotAccepted(String),
     #[error("Response StatusCode was not OK 200 see body for error: {0}")]
     InvalidRequest(String),
+    #[error("File not found on volume server")]
+    FileNotFound,
+    #[error("reqwest error")]
+    ReqwestError(#[from] reqwest::Error),
+    #[error("parsing error")]
+    ParseError(#[from] std::num::ParseIntError),
+    #[error("serde query string parsing error")]
+    SerdeQsError(#[from] serde_qs::Error),
 }
 
 impl Volume {
@@ -40,7 +48,7 @@ impl Volume {
     ///
     /// let master = Volume::from_str("1.1.1.1:9333").unwrap();
     /// ```
-    pub fn from_str(s: &str) -> Result<Volume, Box<dyn Error>> {
+    pub fn from_str(s: &str) -> Result<Volume, VolumeErrors> {
         let mut parts = s.split(":");
 
         let host: String;
@@ -48,12 +56,12 @@ impl Volume {
 
         match parts.next() {
             Some(s) => host = s.to_string(),
-            None => return Err(Box::new(VolumeErrors::WrongFormat)),
+            None => return Err(VolumeErrors::WrongFormat),
         }
 
         match parts.next() {
             Some(s) => port = s.parse::<u16>()?,
-            None => return Err(Box::new(VolumeErrors::WrongFormat)),
+            None => return Err(VolumeErrors::WrongFormat),
         }
 
         Ok(Volume {
@@ -67,7 +75,7 @@ impl Volume {
         &self,
         fid: &FID,
         options: &Option<GetFileOptions>,
-    ) -> Result<Response, Box<dyn Error>> {
+    ) -> Result<Response, VolumeErrors> {
         let qs_string = serde_qs::to_string(options)?;
 
         let client = reqwest::Client::builder().gzip(true).build()?;
@@ -85,7 +93,7 @@ impl Volume {
 
         match req.status() {
             reqwest::StatusCode::OK => Ok(req),
-            _ => Err(Box::new(VolumeErrors::InvalidRequest(req.text().await?))),
+            _ => Err(VolumeErrors::InvalidRequest(req.text().await?)),
         }
     }
 
@@ -94,7 +102,7 @@ impl Volume {
         &self,
         fid: &FID,
         options: &Option<GetFileOptions>,
-    ) -> Result<Bytes, Box<dyn Error>> {
+    ) -> Result<Bytes, VolumeErrors> {
         let qs_string = serde_qs::to_string(options)?;
 
         let client = reqwest::Client::builder().gzip(true).build()?;
@@ -112,34 +120,52 @@ impl Volume {
 
         match req.status() {
             reqwest::StatusCode::OK => Ok(req.bytes().await?),
-            _ => Err(Box::new(VolumeErrors::InvalidRequest(req.text().await?))),
+            reqwest::StatusCode::NOT_FOUND => Err(VolumeErrors::FileNotFound),
+            _ => Err(VolumeErrors::InvalidRequest(req.text().await?)),
         }
     }
 
     /// Deletes a file
-    pub async fn delete_file(
-        &self,
-        fid: &FID,
-        options: &Option<GetFileOptions>,
-    ) -> Result<Bytes, Box<dyn Error>> {
-        let qs_string = serde_qs::to_string(options)?;
-
-        let client = reqwest::Client::builder().gzip(true).build()?;
+    pub async fn delete_file(&self, fid: &FID) -> Result<DeleteResponse, VolumeErrors> {
+        let client = reqwest::Client::builder().build()?;
 
         let req = client
-            .get(concat_string!(
+            .delete(concat_string!(self.to_string(), "/", fid.to_string()))
+            .send()
+            .await?;
+
+        match req.status() {
+            reqwest::StatusCode::ACCEPTED => Ok(req.json::<DeleteResponse>().await?),
+            _ => Err(VolumeErrors::NotAccepted(req.text().await?)),
+        }
+    }
+
+    /// Uploads a reqwest form
+    pub async fn upload_file_form(
+        &self,
+        fid: &FID,
+        data: Form,
+        options: &Option<UploadFileOptions>,
+    ) -> Result<UploadResponse, VolumeErrors> {
+        let qs_string = serde_qs::to_string(options)?;
+
+        let client = reqwest::Client::builder().build()?;
+
+        let req = client
+            .post(concat_string!(
                 self.to_string(),
                 "/",
                 fid.to_string(),
                 "?",
                 qs_string
             ))
+            .multipart(data)
             .send()
             .await?;
 
         match req.status() {
-            reqwest::StatusCode::OK => Ok(req.bytes().await?),
-            _ => Err(Box::new(VolumeErrors::InvalidRequest(req.text().await?))),
+            reqwest::StatusCode::CREATED => Ok(req.json::<UploadResponse>().await?),
+            _ => Err(VolumeErrors::NotCreated(req.text().await?)),
         }
     }
 
@@ -149,7 +175,7 @@ impl Volume {
         fid: &FID,
         data: &Bytes,
         options: &Option<UploadFileOptions>,
-    ) -> Result<UploadBytesResponse, Box<dyn Error>> {
+    ) -> Result<UploadResponse, VolumeErrors> {
         let qs_string = serde_qs::to_string(options)?;
 
         let client = reqwest::Client::builder().build()?;
@@ -167,8 +193,8 @@ impl Volume {
             .await?;
 
         match req.status() {
-            reqwest::StatusCode::CREATED => Ok(req.json::<UploadBytesResponse>().await?),
-            _ => Err(Box::new(VolumeErrors::NotCreated(req.text().await?))),
+            reqwest::StatusCode::CREATED => Ok(req.json::<UploadResponse>().await?),
+            _ => Err(VolumeErrors::NotCreated(req.text().await?)),
         }
     }
 }
@@ -233,21 +259,29 @@ pub struct UploadFileOptions {
 /// Return type for the volume function [upload_file_bytes](Volume::upload_file_bytes)
 #[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
-pub struct UploadBytesResponse {
+pub struct UploadResponse {
     pub size: usize,
     pub e_tag: String,
+}
+
+/// Return type for the volume function [delete_file](Volume::delete_file)
+#[derive(Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteResponse {
+    pub size: usize,
 }
 
 #[cfg(test)]
 mod tests {
     use bytes::Bytes;
+    use reqwest::multipart::{Part, Form};
 
     use crate::master::{AssignKeyOptions, Master};
 
     use crate::utils::FID;
     use crate::volume::Volume;
 
-    use super::UploadFileOptions;
+    use super::{UploadFileOptions, VolumeErrors};
 
     static MASTER_HOST: &str = "localhost";
     static MASTER_PORT: u16 = 8333;
@@ -267,7 +301,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn upload_download_bytes() {
+    async fn upload_download_delete() {
         let master = Master {
             host: MASTER_HOST.to_string(),
             port: Some(MASTER_PORT),
@@ -310,6 +344,78 @@ mod tests {
                     String::from_utf8(x.clone().into()).unwrap()
                 )
             }
+            Err(err) => {
+                println!("{}", err);
+                panic!("failed to download file");
+            }
+        }
+
+        let del_resp = volume.delete_file(&fid).await;
+
+        match del_resp {
+            Ok(x) => {
+                println!("{}", x.size);
+            }
+            Err(err) => {
+                println!("{}", err);
+                panic!("failed to delete file");
+            }
+        }
+
+        let down_resp = volume.get_file_bytes(&fid, &None).await;
+
+        match down_resp {
+            Err(x) => match x {
+                VolumeErrors::FileNotFound => println!("file deleted"),
+                _ => panic!("file not deleted"),
+            },
+            _ => panic!("file not deleted"),
+        }
+    }
+
+    #[tokio::test]
+    async fn upload_multipart() {
+        let master = Master {
+            host: MASTER_HOST.to_string(),
+            port: Some(MASTER_PORT),
+        };
+
+        let options: AssignKeyOptions = Default::default();
+        let master_resp = master.assign_key(&Some(options)).await;
+
+        let fid: FID;
+        let volume: Volume;
+        match master_resp {
+            Ok(x) => {
+                println!("Address {}", x.location.url);
+                volume = Volume::from_str(&x.location.url).unwrap();
+                fid = x.fid;
+            }
+            _ => panic!("failed to assign key"),
+        }
+
+        let form = Form::new().part("file", Part::text("Hello World!").file_name("hello.txt").mime_str("text/plain").unwrap());
+
+        let file_resp = volume.upload_file_form(&fid, form, &None).await;
+
+        match file_resp {
+            Ok(x) => {
+                println!("Body length: {}", x.size);
+                assert_eq!("Hello World!".len(), x.size);
+            }
+            Err(err) => {
+                println!("{}", err);
+                panic!("failed to upload file");
+            }
+        }
+
+        let down_resp = volume.get_file_bytes(&fid, &None).await;
+
+        match down_resp {
+            Ok(x) => {
+                println!("Body length: {}", x.len());
+                assert_eq!("Hello World!".len(), x.len());
+            },
             Err(err) => {
                 println!("{}", err);
                 panic!("failed to download file");

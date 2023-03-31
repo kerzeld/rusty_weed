@@ -1,4 +1,3 @@
-use std::error::Error;
 use thiserror::Error;
 
 use serde::{Deserialize, Serialize};
@@ -11,11 +10,17 @@ pub struct Master {
 }
 
 #[derive(Error, Debug)]
-enum MasterErrors {
+pub enum MasterErrors {
     #[error("Wrong format of string expected 0.0.0.0:3333 for example")]
     WrongFormat,
     #[error("Response StatusCode was not OK see body for error: {0}")]
     InvalidRequest(String),
+    #[error("reqwest error")]
+    ReqwestError(#[from] reqwest::Error),
+    #[error("parsing error")]
+    ParseError(#[from] std::num::ParseIntError),
+    #[error("serde query string parsing error")]
+    SerdeQsError(#[from] serde_qs::Error),
 }
 
 impl Master {
@@ -34,7 +39,7 @@ impl Master {
     /// 
     /// let master = Master::from_str("1.1.1.1:9333").unwrap();
     /// ```
-    pub fn from_str(s: &str) -> Result<Master, Box<dyn Error>> {
+    pub fn from_str(s: &str) -> Result<Master, MasterErrors> {
         let mut parts = s.split(":");
 
         let host: String;
@@ -42,12 +47,12 @@ impl Master {
 
         match parts.next() {
             Some(s) => host = s.to_string(),
-            None => return Err(Box::new(MasterErrors::WrongFormat)),
+            None => return Err(MasterErrors::WrongFormat),
         }
 
         match parts.next() {
             Some(s) => port = s.parse::<u16>()?,
-            None => return Err(Box::new(MasterErrors::WrongFormat)),
+            None => return Err(MasterErrors::WrongFormat),
         }
 
         Ok(Master {
@@ -60,13 +65,13 @@ impl Master {
     pub async fn assign_key(
         &self,
         options: &Option<AssignKeyOptions>,
-    ) -> Result<AssignKeyResponse, Box<dyn Error>> {
+    ) -> Result<AssignKeyResponse, MasterErrors> {
         let qs_string = serde_qs::to_string(options)?;
         let req = reqwest::get(concat_string!(self.to_string(), "/dir/assign?", qs_string)).await?;
 
         match req.status() {
             reqwest::StatusCode::OK => Ok(req.json::<AssignKeyResponse>().await?),
-            _ => Err(Box::new(MasterErrors::InvalidRequest(req.text().await?))),
+            _ => Err(MasterErrors::InvalidRequest(req.text().await?)),
         }
     }
 
@@ -75,7 +80,7 @@ impl Master {
         &self,
         volume_id: &FID,
         options: &Option<LookupVolumeOptions>,
-    ) -> Result<LookupVolumeResponse, Box<dyn Error>> {
+    ) -> Result<LookupVolumeResponse, MasterErrors> {
         let qs_string = serde_qs::to_string(options)?;
 
         let req = reqwest::get(concat_string!(
@@ -89,7 +94,7 @@ impl Master {
 
         match req.status() {
             reqwest::StatusCode::OK => Ok(req.json::<LookupVolumeResponse>().await?),
-            _ => Err(Box::new(MasterErrors::InvalidRequest(req.text().await?))),
+            _ => Err(MasterErrors::InvalidRequest(req.text().await?)),
         }
     }
 }
